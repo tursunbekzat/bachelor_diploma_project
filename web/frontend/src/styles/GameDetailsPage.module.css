@@ -1,0 +1,54 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background-color: #f0f0f0;
+    padding: 20px;
+  }
+  
+  h1 {
+    font-size: 2.5rem;
+    color: #333;
+  }
+  
+  p {
+    font-size: 1.2rem;
+    color: #666;
+  }
+  
+  h2 {
+    margin-top: 20px;
+    font-size: 1.8rem;
+    color: #333;
+  }
+  
+  .playerList {
+    list-style: none;
+    padding: 0;
+  }
+  
+  .playerCard {
+    background-color: #fff;
+    border: 1px solid #ccc;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 8px;
+  }
+  
+  .joinButton {
+    margin-top: 20px;
+    padding: 10px 20px;
+    font-size: 1rem;
+    color: white;
+    background-color: #007bff;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  
+  .joinButton:hover {
+    background-color: #0056b3;
+  }
+  

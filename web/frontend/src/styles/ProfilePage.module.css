@@ -1,0 +1,36 @@
+/* ProfilePage.module.css */
+.profileContainer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: linear-gradient(to right, #1e3c72, #2a5298);
+  }
+  
+  .profileCard {
+    background-color: white;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+  }
+  
+  .welcomeText {
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 20px;
+    color: #2a5298;
+  }
+  
+  .info {
+    font-size: 16px;
+    color: #555;
+    margin-bottom: 10px;
+  }
+  
+  .info strong {
+    color: #333;
+  }
+  
