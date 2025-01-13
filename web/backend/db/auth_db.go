@@ -49,6 +49,20 @@ func GetAllUsers() ([]*data.User, error) {
     return users, nil
 }
 
+// GetUserByID возвращает пользователя по его ID
+func GetUserByID(userID int) (*data.User, error) {
+	query := `SELECT id, username, email, created_at FROM users WHERE id = $1`
+	user := &data.User{}
+	err := DB.QueryRow(query, userID).Scan(&user.ID, &user.Username, &user.Email, &user.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return user, nil
+}
+
 // GetCurrentUser retrieves the current user based on the provided user ID
 func GetCurrentUser(userID int) (*data.User, error) {
     query := `SELECT id, username, email, created_at FROM users WHERE id = $1`

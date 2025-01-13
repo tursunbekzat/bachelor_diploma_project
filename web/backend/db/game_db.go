@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 )
 
 // CreateGame adds a new game to the database
@@ -17,25 +18,43 @@ func CreateGame(game *data.Game) error {
     return nil
 }
 
-// Gets list of games with detailed information
-func GetAllGames() ([]*data.Game, error) {
-    rows, err := DB.Query("SELECT id, game_name, creator_id, status, created_at FROM games")
+// GetAllGames retrieves all games along with their creators
+func GetAllGames() ([]map[string]interface{}, error) {
+    query := `
+        SELECT g.id, g.game_name, g.creator_id, g.status, g.created_at, u.username 
+        FROM games g
+        JOIN users u ON g.creator_id = u.id
+    `
+    rows, err := DB.Query(query)
     if err != nil {
         return nil, err
     }
     defer rows.Close()
 
-    var games []*data.Game
+    var games []map[string]interface{}
     for rows.Next() {
-        var game data.Game
-        if err := rows.Scan(&game.ID, &game.GameName, &game.CreatorID, &game.Status, &game.CreatedAt); err != nil {
+        var gameID int
+        var gameName, status, creatorName string
+        var creatorID int
+        var createdAt time.Time
+
+        err := rows.Scan(&gameID, &gameName, &creatorID, &status, &createdAt, &creatorName)
+        if err != nil {
             return nil, err
         }
-        games = append(games, &game)
+
+        game := map[string]interface{}{
+            "id":           gameID,
+            "game_name":    gameName,
+            "creator_id":   creatorID,
+            "creator_name": creatorName,
+            "status":       status,
+            "created_at":   createdAt,
+        }
+        games = append(games, game)
     }
     return games, nil
 }
-
 // GetGameByID retrieves a game by its ID
 func GetGameByID(gameID int) (*data.Game, error) {
     query := `SELECT id, game_name, creator_id, status, created_at FROM games WHERE id = $1`
@@ -83,15 +102,18 @@ func AddPlayerToGame(gameID int, userID int) error {
 }
 
 // Getting players who joined the game
-func GetPlayersInGame(gameID int) ([]*data.Player, error) {
+// GetPlayersInGame retrieves players in a game with their usernames
+func GetPlayersInGame(gameID int) ([]map[string]interface{}, error) {
     query := `
-        SELECT p.id, p.game_id, p.user_id, p.health,
+        SELECT p.id, p.user_id, p.game_id, u.username, p.health,
                COALESCE(r.name, 'No Role') AS role, 
                COALESCE(c.name, 'No Character') AS character
         FROM players p
+        JOIN users u ON p.user_id = u.id
         LEFT JOIN roles r ON p.role = r.name
         LEFT JOIN characters c ON p.character = c.name
-        WHERE p.game_id = $1`
+        WHERE p.game_id = $1
+    `
 
     rows, err := DB.Query(query, gameID)
     if err != nil {
@@ -99,25 +121,32 @@ func GetPlayersInGame(gameID int) ([]*data.Player, error) {
     }
     defer rows.Close()
 
-    var players []*data.Player
+    var players []map[string]interface{}
     for rows.Next() {
-        player := &data.Player{}
-        err := rows.Scan(
-            &player.ID, &player.GameID, &player.UserID, &player.Health,
-            &player.Role, &player.Character,
-        )
+        var id, userID, gameID, health int
+        var username, role, character string
+
+        err := rows.Scan(&id, &userID, &gameID, &username, &health, &role, &character)
         if err != nil {
             return nil, fmt.Errorf("could not scan player: %v", err)
         }
-        players = append(players, player)
-    }
 
-    if err = rows.Err(); err != nil {
-        return nil, fmt.Errorf("row iteration error: %v", err)
+        player := map[string]interface{}{
+            "id":        id,
+            "user_id":   userID,
+            "game_id":   gameID,
+            "username":  username,
+            "health":    health,
+            "role":      role,
+            "character": character,
+        }
+
+        players = append(players, player)
     }
 
     return players, nil
 }
+
 
 // UpdatePlayerRoleAndCharacter updates the role and character of a player
 func UpdatePlayerRoleAndCharacter(playerID int, role string, character string, health int) error {
@@ -158,8 +187,7 @@ func GetRolesByPlayerCount(numPlayers int) ([]data.Role, error) {
     return roles, nil
 }
 
-// Dividing Characters
-func GetAvailableCharacters(gameID int) ([]data.Character, error) {
+func GetAvailableCharacters(gameID int, numPlayers int) ([]data.Character, error) {
     query := `SELECT c.name, c.definition, c.health 
               FROM characters c
               WHERE NOT EXISTS (
@@ -168,7 +196,7 @@ func GetAvailableCharacters(gameID int) ([]data.Character, error) {
               )`
     rows, err := DB.Query(query, gameID)
     if err != nil {
-        log.Println("Error query in character")
+        log.Println("Error querying characters")
         return nil, fmt.Errorf("could not query characters: %v", err)
     }
     defer rows.Close()
@@ -178,16 +206,35 @@ func GetAvailableCharacters(gameID int) ([]data.Character, error) {
         var character data.Character
         err := rows.Scan(&character.Name, &character.Definition, &character.Health)
         if err != nil {
-            log.Println("Error getting character")
+            log.Println("Error scanning character")
             return nil, fmt.Errorf("could not scan character: %v", err)
         }
         characters = append(characters, character)
     }
 
+    log.Println("Characters available:", len(characters))
+
     // Проверяем, что достаточно персонажей для всех игроков
-    if len(characters) < gameID {
+    if len(characters) < numPlayers {
         return nil, fmt.Errorf("not enough characters available")
     }
 
     return characters, nil
+}
+
+
+
+
+// CheckPlayerExists проверяет, существует ли игрок в игре
+func CheckPlayerExists(gameID int, userID int) (bool, error) {
+    var exists bool
+    query := `SELECT 1 FROM players WHERE game_id = $1 AND user_id = $2`
+    err := DB.QueryRow(query, gameID, userID).Scan(&exists)
+    if err == sql.ErrNoRows {
+        return false, nil
+    }
+    if err != nil {
+        return false, fmt.Errorf("could not check player existence: %v", err)
+    }
+    return exists, nil
 }

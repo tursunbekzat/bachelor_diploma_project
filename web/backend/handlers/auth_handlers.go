@@ -4,7 +4,6 @@ import (
 	"backend/data"
 	"backend/db"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -151,9 +150,13 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     http.SetCookie(w, &http.Cookie{
-        Name:    "token",
-        Value:   token,
-        Expires: time.Now().Add(24 * time.Hour),
+        Name:     "token",
+        Value:    token,
+        Expires:  time.Now().Add(24 * time.Hour),
+        Path:     "/",
+        Secure:   true,               // Требуется для SameSite=None
+        HttpOnly: true,
+        SameSite: http.SameSiteNoneMode, // Разрешаем отправку cookie в кросс-доменных запросах
     })
 
     w.WriteHeader(http.StatusOK)
@@ -175,25 +178,41 @@ func GetUsersHandler(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(users)
 }
 
+// GetCurrentUser возвращает информацию о текущем пользователе
 func GetCurrentUser(w http.ResponseWriter, r *http.Request) {
-    cookie, err := r.Cookie("token")
-    if err != nil {
-        http.Error(w, "Unauthorized", http.StatusUnauthorized)
-        return
-    }
+	// Получаем токен из cookie
+	cookie, err := r.Cookie("token")
+	if err != nil {
+		http.Error(w, "Unauthorized: No token provided", http.StatusUnauthorized)
+		return
+	}
 
-    claims, err := data.ValidateJWT(cookie.Value)
-    if err != nil {
-        http.Error(w, "Invalid token", http.StatusUnauthorized)
-        return
-    }
+	// Проверяем токен
+	claims, err := data.ValidateJWT(cookie.Value)
+	if err != nil {
+		http.Error(w, "Unauthorized: Invalid token", http.StatusUnauthorized)
+		return
+	}
 
-    user, err := db.GetCurrentUser(claims.UserID)
-    if err != nil {
-        log.Fatalf("Could not retrieve user: %v", err)
-    }
-    fmt.Println("Current user:", user.Username)
+	// Получаем пользователя из базы данных
+	user, err := db.GetUserByID(claims.UserID)
+	if err != nil {
+		http.Error(w, "Server error: Could not retrieve user", http.StatusInternalServerError)
+		return
+	}
+	if user == nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
 
-    w.WriteHeader(http.StatusOK)
-    json.NewEncoder(w).Encode(user)
+	// Удаляем пароль перед отправкой данных пользователю
+	user.Password = ""
+    
+    // Форматируем дату в ISO 8601
+    user.CreatedAt = user.CreatedAt.UTC()
+
+
+	// Отправляем информацию о пользователе в ответе
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(user)
 }

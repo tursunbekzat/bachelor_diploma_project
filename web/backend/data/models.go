@@ -4,7 +4,7 @@ import (
     "time"
 )
 
-// User represents a player in the game
+// User represents a user in the site
 type User struct {
     ID        int       `json:"id"`
     Username  string    `json:"username"`
@@ -22,7 +22,7 @@ type Game struct {
     CreatedAt time.Time `json:"created_at"`
 }
 
-// Player represents a player in a specific game
+// Player represents a player in the specific game
 type Player struct {
     ID         int        `json:"id"`
     GameID     int        `json:"game_id"`
@@ -43,4 +43,20 @@ type Character struct {
     Name   string `json:"name"`
     Definition string `json:"definition"`
     Health int    `json:"health"`
+}
+
+// Cards
+type Card struct {
+    ID int `json:"id"`
+    Name string `json:"name"`
+    Type string `json:"type"`
+    Description string `json:"description"`
+    Copies int `json:"copies"`
+}
+
+// GameState
+type GameState struct {
+    ID int `json:"id"`
+    CurrentTurn int `json:"current_turn"`
+    CurrentPhase string `json:"current_phase"`
 }

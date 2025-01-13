@@ -74,9 +74,12 @@ func GetAllGamesHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Could not retrieve games", http.StatusInternalServerError)
         return
     }
-    if games == nil {
+
+    if len(games) == 0 {
         log.Println("Currently No Games!")
     }
+
+    w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(http.StatusOK)
     json.NewEncoder(w).Encode(games)
 }
@@ -94,9 +97,8 @@ func GetGameDetailsHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Invalid token", http.StatusUnauthorized)
         return
     }
-    log.Println("GetGameDetailsHandler: ", claims)
+    log.Println(claims.Username)
 
-    // Получаем параметр {id} из пути
     vars := mux.Vars(r)
     gameIDStr := vars["id"]
 
@@ -111,7 +113,6 @@ func GetGameDetailsHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Could not retrieve game", http.StatusInternalServerError)
         return
     }
-    log.Println("Current game -", game.GameName)
 
     if game == nil {
         http.Error(w, "Game not found", http.StatusNotFound)
@@ -123,14 +124,10 @@ func GetGameDetailsHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Could not retrieve players", http.StatusInternalServerError)
         return
     }
-    log.Println("Players in game -", players)
 
-    gameDetails := struct {
-        Game     *data.Game     `json:"game"`
-        Players  []*data.Player `json:"players"`
-    }{
-        Game:    game,
-        Players: players,
+    gameDetails := map[string]interface{}{
+        "game":    game,
+        "players": players,
     }
 
     w.WriteHeader(http.StatusOK)
@@ -138,19 +135,23 @@ func GetGameDetailsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // JoinGameHandler handles players joining an existing game
+// JoinGameHandler handles players joining an existing game
 func JoinGameHandler(w http.ResponseWriter, r *http.Request) {
+    // Получаем токен из cookie
     cookie, err := r.Cookie("token")
     if err != nil {
         http.Error(w, "Unauthorized", http.StatusUnauthorized)
         return
     }
 
+    // Валидируем JWT
     claims, err := data.ValidateJWT(cookie.Value)
     if err != nil {
         http.Error(w, "Invalid token", http.StatusUnauthorized)
         return
     }
 
+    // Получаем данные запроса
     var joinRequest struct {
         GameID int `json:"game_id"`
     }
@@ -161,6 +162,7 @@ func JoinGameHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Проверяем, существует ли игра
     game, err := db.GetGameByID(joinRequest.GameID)
     if err != nil {
         http.Error(w, "Could not retrieve game", http.StatusInternalServerError)
@@ -172,6 +174,25 @@ func JoinGameHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Проверяем, что создатель игры не может присоединиться к своей игре
+    if game.CreatorID == claims.UserID {
+        http.Error(w, "Creator cannot join their own game", http.StatusForbidden)
+        return
+    }
+
+    // Проверяем, что пользователь ещё не присоединился к игре
+    alreadyJoined, err := db.CheckPlayerExists(joinRequest.GameID, claims.UserID)
+    if err != nil {
+        http.Error(w, "Could not check player existence", http.StatusInternalServerError)
+        return
+    }
+
+    if alreadyJoined {
+        http.Error(w, "Player already joined this game", http.StatusConflict)
+        return
+    }
+
+    // Добавляем игрока в игру
     err = db.AddPlayerToGame(joinRequest.GameID, claims.UserID)
     if err != nil {
         http.Error(w, "Could not join game", http.StatusInternalServerError)
@@ -181,6 +202,7 @@ func JoinGameHandler(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusOK)
     json.NewEncoder(w).Encode(map[string]string{"message": "Joined game successfully"})
 }
+
 
 // StartGameHandler handles the logic to start a new game
 func StartGameHandler(w http.ResponseWriter, r *http.Request) {
@@ -233,13 +255,14 @@ func StartGameHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Could not assign roles and characters", http.StatusInternalServerError)
         return
     }
-
+    
+    game.Status = "Started"
     w.WriteHeader(http.StatusOK)
     json.NewEncoder(w).Encode(map[string]string{"message": "Game started successfully"})
 }
 
-// AssignRolesAndCharacters assigns roles and characters to players based on the number of players
 func AssignRolesAndCharacters(gameID int) error {
+    // Получаем игроков в игре
     players, err := db.GetPlayersInGame(gameID)
     if err != nil {
         log.Println("Error in Getting Players List")
@@ -247,7 +270,7 @@ func AssignRolesAndCharacters(gameID int) error {
     }
 
     if len(players) == 0 {
-        log.Println("no players found in game")
+        log.Println("No players found in game")
         return fmt.Errorf("no players found in game")
     }
 
@@ -257,29 +280,35 @@ func AssignRolesAndCharacters(gameID int) error {
         return fmt.Errorf("invalid number of players: %d", numPlayers)
     }
 
-    characters, err := db.GetAvailableCharacters(gameID)
+    // Получаем доступные персонажи и роли
+    characters, err := db.GetAvailableCharacters(gameID, numPlayers)
     if err != nil {
-        log.Println("Error getting characters")
+        log.Println("Error getting characters:", err)
         return err
     }
-    log.Println("Characters:", len(characters))
 
     roles, err := db.GetRolesByPlayerCount(numPlayers)
     if err != nil {
         log.Println("Error getting roles")
         return err
     }
-    log.Println("Roles:", len(roles))
 
-    if len(roles) < len(players) || len(characters) < len(players) {
-        log.Println("not enough roles or characters for all players")
+    if len(roles) < numPlayers || len(characters) < numPlayers {
+        log.Println("Not enough roles or characters for all players")
         return fmt.Errorf("not enough roles or characters for all players")
     }
 
+    // Перемешиваем роли и персонажи случайным образом
     rand.Shuffle(len(roles), func(i, j int) { roles[i], roles[j] = roles[j], roles[i] })
     rand.Shuffle(len(characters), func(i, j int) { characters[i], characters[j] = characters[j], characters[i] })
 
+    // Назначаем роли и персонажи игрокам
     for i, player := range players {
+        playerID, ok := player["id"].(int)
+        if !ok {
+            return fmt.Errorf("invalid player ID type")
+        }
+
         role := roles[i]
         character := characters[i]
 
@@ -289,7 +318,8 @@ func AssignRolesAndCharacters(gameID int) error {
             health++
         }
 
-        err := db.UpdatePlayerRoleAndCharacter(player.ID, role.Name, character.Name, health)
+        // Обновляем информацию о роли и персонаже в базе данных
+        err := db.UpdatePlayerRoleAndCharacter(playerID, role.Name, character.Name, health)
         if err != nil {
             log.Println("Error UpdatePlayerRoleAndCharacter")
             return err
@@ -298,6 +328,8 @@ func AssignRolesAndCharacters(gameID int) error {
 
     return nil
 }
+
+
 
 // DeleteGameHandler handles the deletion of a game
 func DeleteGameHandler(w http.ResponseWriter, r *http.Request) {
